@@ -1,7 +1,9 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"log"
 	"os"
 	"strconv"
@@ -40,9 +42,12 @@ func (b *Bot) onHelp(c tele.Context) error {
 	return c.Send(b.t(c, "help"), htmlMode)
 }
 
+//go:embed jonygay.jpg
+var jonygayPhoto []byte
+
 // onJonygay is a hidden easter egg that sends a specific photo.
 func (b *Bot) onJonygay(c tele.Context) error {
-	p := &tele.Photo{File: tele.FromDisk("assets/jonygay.jpg")}
+	p := &tele.Photo{File: tele.FromReader(bytes.NewReader(jonygayPhoto))}
 	return c.Send(p)
 }
 
