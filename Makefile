@@ -1,5 +1,5 @@
 BINARY := kiwismir
-PKG     := ./cmd/kiwismir
+PKG     := .
 
 .PHONY: all build run tidy test fmt vet clean docker
 

@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags "-s -w" \
       -o /out/kiwismir \
-      ./cmd/kiwismir
+      .
 
 # ---- runtime stage ----------------------------------------------------------
 FROM alpine:3.20

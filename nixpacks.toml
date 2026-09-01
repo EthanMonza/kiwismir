@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["ffmpeg"]
+aptPkgs = []
+
+[phases.install]
+cmds = [
+  "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp --max-time 60",
+  "chmod +x /usr/local/bin/yt-dlp"
+]
+
+[phases.build]
+cmds = ["go build -trimpath -ldflags '-s -w' -o kiwismir ."]
+
+[start]
+cmd = "./kiwismir"
