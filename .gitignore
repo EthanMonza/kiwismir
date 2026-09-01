@@ -1,0 +1,34 @@
+# Secrets & local config — NEVER commit these!
+.env
+
+# Runtime data & downloads
+/downloads/
+kiwismir_users.json
+*.tmp
+
+# Build artifacts
+/bin/
+kiwismir
+kiwismir.exe
+
+# Bundled binaries — large, platform-specific, should not be in git.
+# Download them separately or let Docker install them.
+yt-dlp
+yt-dlp.exe
+yt-dlp.exe.old
+ffmpeg.exe
+ffprobe.exe
+ffmpeg
+ffprobe
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Go test cache
+/vendor/

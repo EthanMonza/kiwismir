@@ -1,0 +1,15 @@
+services:
+  kiwismir:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DOWNLOAD_DIR=/tmp/kiwismir
+      - DATA_FILE=/data/kiwismir_users.json
+      - YTDLP_PATH=yt-dlp
+      - FFMPEG_PATH=ffmpeg
+    volumes:
+      - kiwismir_data:/data
+
+volumes:
+  kiwismir_data:
