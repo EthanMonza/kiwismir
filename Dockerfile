@@ -27,7 +27,6 @@ RUN apk add --no-cache ffmpeg ca-certificates curl python3 \
     && chmod +x /usr/local/bin/yt-dlp
 
 COPY --from=build /out/kiwismir /usr/local/bin/kiwismir
-COPY assets /assets
 
 RUN mkdir -p /data /tmp/kiwismir \
     && adduser -D -s /bin/false kiwismir \
