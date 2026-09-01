@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ---- runtime stage ----------------------------------------------------------
 FROM alpine:3.20
 
-RUN apk add --no-cache ffmpeg ca-certificates curl \
+RUN apk add --no-cache ffmpeg ca-certificates curl python3 \
     && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
        -o /usr/local/bin/yt-dlp --max-time 60 \
     && chmod +x /usr/local/bin/yt-dlp
