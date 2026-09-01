@@ -4,7 +4,7 @@ aptPkgs = []
 
 [phases.install]
 cmds = [
-  "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp --max-time 60",
+  "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp --max-time 60",
   "chmod +x /usr/local/bin/yt-dlp"
 ]
 
