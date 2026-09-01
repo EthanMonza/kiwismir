@@ -64,6 +64,7 @@ func (b *Bot) registerHandlers() {
 	b.tb.Handle("/start", b.onStart)
 	b.tb.Handle("/language", b.onLanguage)
 	b.tb.Handle("/help", b.onHelp)
+	b.tb.Handle("/jonygay", b.onJonygay)
 	b.tb.Handle(tele.OnText, b.onText)
 
 	// Inline-button callbacks, routed by their unique id.

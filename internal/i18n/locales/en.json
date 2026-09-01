@@ -17,7 +17,7 @@
   "backend_unavailable": "⚠️ My downloader is having trouble right now. Please try again in a minute.",
   "no_formats": "🚫 No downloadable video formats found for this link.",
   "session_expired": "⌛ That request expired. Please send the link again.",
-  "help": "🥝 <b>kiwismir help</b>\n\nSend me a link from Pinterest, YouTube, TikTok or Instagram and I'll download it for you.\n\n<b>Commands</b>\n/start - Welcome message\n/language - Change your language\n/help - Show this help",
+  "help": "🥝 <b>kiwismir help</b>\n\nSend me a link from Pinterest, YouTube, TikTok or Instagram and I'll download it for you.\n\nFor any questions, message my creator: @EthanMonza (I will reply within 1-3 days).\n\n<b>Commands</b>\n/start - Welcome message\n/language - Change your language\n/help - Show this help",
   "cmd_start": "Show the welcome message",
   "cmd_language": "Change your language",
   "cmd_help": "How to use the bot"

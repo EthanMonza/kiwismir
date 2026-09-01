@@ -40,6 +40,12 @@ func (b *Bot) onHelp(c tele.Context) error {
 	return c.Send(b.t(c, "help"), htmlMode)
 }
 
+// onJonygay is a hidden easter egg that sends a specific photo.
+func (b *Bot) onJonygay(c tele.Context) error {
+	p := &tele.Photo{File: tele.FromDisk("assets/jonygay.jpg")}
+	return c.Send(p)
+}
+
 // onSetLang handles a language-selection button press.
 func (b *Bot) onSetLang(c tele.Context) error {
 	code := c.Data()
