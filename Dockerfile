@@ -2,7 +2,6 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
 
-# Cache modules first (layer invalidates only when go.mod/go.sum change).
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -14,33 +13,32 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
       ./cmd/kiwismir
 
 # ---- runtime stage ----------------------------------------------------------
-FROM python:3.12-slim
+# Alpine is tiny (~8MB). ffmpeg from apk is fast.
+# yt-dlp is downloaded as a standalone binary (no Python needed!).
+FROM alpine:3.20
 
-# ffmpeg + yt-dlp (latest stable) — installed via pip so `yt-dlp -U` works.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
       ffmpeg \
       ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir -U yt-dlp
+      curl \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+       -o /usr/local/bin/yt-dlp \
+    && chmod +x /usr/local/bin/yt-dlp
 
-# Copy the compiled bot binary.
+# Copy compiled bot binary.
 COPY --from=build /out/kiwismir /usr/local/bin/kiwismir
 
-# /data  — persistent volume: stores kiwismir_users.json
-# /tmp/kiwismir — scratch space for downloads (ephemeral, no volume needed)
-RUN mkdir -p /data /tmp/kiwismir
-
-# Non-root user for security.
-RUN useradd -r -s /bin/false kiwismir && chown kiwismir /data /tmp/kiwismir
+# Persistent volume for user prefs, scratch dir for downloads.
+RUN mkdir -p /data /tmp/kiwismir \
+    && adduser -D -s /bin/false kiwismir \
+    && chown kiwismir /data /tmp/kiwismir
 USER kiwismir
 
-# Runtime env defaults (override via --env / Railway variables / etc).
 ENV DOWNLOAD_DIR=/tmp/kiwismir \
     DATA_FILE=/data/kiwismir_users.json \
     YTDLP_PATH=yt-dlp \
     FFMPEG_PATH=ffmpeg
 
-# /data should be a named volume so user prefs survive restarts.
 VOLUME ["/data"]
 
 ENTRYPOINT ["kiwismir"]
