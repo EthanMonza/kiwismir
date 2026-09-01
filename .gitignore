@@ -8,8 +8,8 @@ kiwismir_users.json
 
 # Build artifacts
 /bin/
-kiwismir
-kiwismir.exe
+/kiwismir
+/kiwismir.exe
 
 # Bundled binaries — large, platform-specific, should not be in git.
 # Download them separately or let Docker install them.
