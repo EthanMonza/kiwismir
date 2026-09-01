@@ -171,9 +171,8 @@ func (d *Downloader) Probe(ctx context.Context, rawURL string) (*Media, error) {
 		"--no-warnings",
 		"--no-playlist",
 	}
-	// TikTok & Instagram often block plain requests; pass a common mobile
-	// API hostname to bypass the bot-check without needing browser cookies.
-	args = append(args, tiktokArgs(rawURL)...)
+	// Add any platform-specific bypasses (e.g. YouTube bot detection)
+	args = append(args, platformArgs(rawURL)...)
 	args = append(args, rawURL)
 
 	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
@@ -337,7 +336,7 @@ func (d *Downloader) DownloadVideo(ctx context.Context, rawURL string, maxHeight
 		maxHeight, maxHeight,
 	)
 
-	cmd := exec.CommandContext(ctx, d.ytdlp,
+	args := []string{
 		"-f", format,
 		"--merge-output-format", "mp4",
 		"--no-playlist",
@@ -349,8 +348,11 @@ func (d *Downloader) DownloadVideo(ctx context.Context, rawURL string, maxHeight
 		"-o", outTmpl,
 		"--print", "after_move:filepath",
 		"--no-simulate",
-		rawURL,
-	)
+	}
+	args = append(args, platformArgs(rawURL)...)
+	args = append(args, rawURL)
+
+	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
 	path, err := runAndCapturePath(cmd)
 	if err != nil {
 		_ = os.RemoveAll(workDir)
@@ -374,7 +376,7 @@ func (d *Downloader) DownloadAudio(ctx context.Context, rawURL string) (string, 
 	}
 
 	outTmpl := filepath.Join(workDir, "%(id)s.%(ext)s")
-	cmd := exec.CommandContext(ctx, d.ytdlp,
+	args := []string{
 		"-f", "bestaudio/best",
 		"-x",
 		"--audio-format", "mp3",
@@ -388,8 +390,11 @@ func (d *Downloader) DownloadAudio(ctx context.Context, rawURL string) (string, 
 		"-o", outTmpl,
 		"--print", "after_move:filepath",
 		"--no-simulate",
-		rawURL,
-	)
+	}
+	args = append(args, platformArgs(rawURL)...)
+	args = append(args, rawURL)
+
+	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
 	path, err := runAndCapturePath(cmd)
 	if err != nil {
 		_ = os.RemoveAll(workDir)
@@ -452,29 +457,22 @@ func FileSizeMB(path string) (int64, error) {
 	return fi.Size() / (1024 * 1024), nil
 }
 
-// tiktokArgs returns extra yt-dlp flags for TikTok URLs.
-//
-// Strategy (no browser cookies required):
-//  1. Route through TikTok's internal mobile-app API endpoint (api22) — this
-//     is the same endpoint the Android app uses and is not IP-blocked the way
-//     the web endpoint is.
-//  2. Spoof the TikTok Android app User-Agent so the server treats the request
-//     as a legitimate app request.
-//  3. Add Accept-Language to avoid region-lock false-positives.
-func tiktokArgs(rawURL string) []string {
+// platformArgs returns extra yt-dlp flags for specific platforms to bypass
+// bot detection without needing browser cookies.
+func platformArgs(rawURL string) []string {
 	host := strings.ToLower(rawURL)
-	if !strings.Contains(host, "tiktok.com") &&
-		!strings.Contains(host, "vm.tiktok") &&
-		!strings.Contains(host, "vt.tiktok") {
-		return nil
+	
+	// YouTube blocks datacenter IPs with a "Sign in to confirm you're not a bot" error.
+	// We can bypass this by requesting the Android/Web client API instead of the default.
+	if strings.Contains(host, "youtube.com") || strings.Contains(host, "youtu.be") {
+		return []string{
+			"--extractor-args", "youtube:player_client=android,web",
+		}
 	}
-	return []string{
-		// Use the TikTok Android app API hostname instead of the web endpoint.
-		"--extractor-args", "tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com",
-		// Mimic the TikTok Android app — same signature the mobile app sends.
-		"--user-agent", "com.zhiliaoapp.musically/2022600030 (Linux; U; Android 7.1.2; en_US; Pixel 6 Pro; Build/TE1A.220922.034; Cronet/58.0.2991.0)",
-		// Extra headers that the app always includes.
-		"--add-headers", "Accept-Language:en-US,en;q=0.9",
-		"--add-headers", "X-Gorgon:0404ac8b0001d3bc3a54fdbabb20ba27acf1c6b09d0c4e31",
-	}
+	
+	// For TikTok, we previously used a hardcoded API endpoint (api22), but it is now 
+	// throwing "status code 0" (region-blocked). The latest yt-dlp version's default 
+	// extractor handles TikTok much better automatically.
+	
+	return nil
 }
