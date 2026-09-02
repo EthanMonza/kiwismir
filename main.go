@@ -45,7 +45,7 @@ func main() {
 		log.Fatalf("storage error: %v", err)
 	}
 
-	dl := downloader.New(cfg.YtDlpPath, cfg.FfmpegPath, cfg.DownloadDir, cfg.DownloadTimeout)
+	dl := downloader.New(cfg.YtDlpPath, cfg.FfmpegPath, cfg.DownloadDir, cfg.DownloadTimeout, cfg.CobaltAPIURL)
 
 	b, err := bot.New(cfg, store, bundle, dl)
 	if err != nil {

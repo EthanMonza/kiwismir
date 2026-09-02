@@ -56,21 +56,24 @@ func (m *Media) HasHD() bool {
 
 // Downloader performs probing and downloading.
 type Downloader struct {
-	ytdlp   string
-	ffmpeg  string
-	tmpDir  string
-	timeout time.Duration
-	http    *http.Client
+	ytdlp     string
+	ffmpeg    string
+	tmpDir    string
+	timeout   time.Duration
+	cobaltURL string
+	http      *http.Client
 }
 
 // New constructs a Downloader. ytdlp and ffmpeg are binary paths/names.
-func New(ytdlp, ffmpeg, tmpDir string, timeout time.Duration) *Downloader {
+// cobaltAPIURL is an optional Cobalt API instance URL used for YouTube downloads.
+func New(ytdlp, ffmpeg, tmpDir string, timeout time.Duration, cobaltAPIURL string) *Downloader {
 	return &Downloader{
-		ytdlp:   resolveBinary(ytdlp),
-		ffmpeg:  resolveBinary(ffmpeg),
-		tmpDir:  tmpDir,
-		timeout: timeout,
-		http:    &http.Client{Timeout: 60 * time.Second},
+		ytdlp:     resolveBinary(ytdlp),
+		ffmpeg:    resolveBinary(ffmpeg),
+		tmpDir:    tmpDir,
+		timeout:   timeout,
+		cobaltURL: strings.TrimRight(cobaltAPIURL, "/"),
+		http:      &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -174,6 +177,11 @@ func (d *Downloader) Probe(ctx context.Context, rawURL string) (*Media, error) {
 	// Add any platform-specific bypasses (e.g. YouTube bot detection)
 	args = append(args, platformArgs(rawURL)...)
 	args = append(args, rawURL)
+
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead.
+	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+		return d.probeViaCobalt(ctx, rawURL)
+	}
 
 	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
 	var stderr bytes.Buffer
@@ -352,6 +360,12 @@ func (d *Downloader) DownloadVideo(ctx context.Context, rawURL string, maxHeight
 	args = append(args, platformArgs(rawURL)...)
 	args = append(args, rawURL)
 
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp.
+	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+		_ = os.RemoveAll(workDir) // not needed for Cobalt path
+		return d.downloadViaCobalt(ctx, rawURL, maxHeight)
+	}
+
 	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
 	path, err := runAndCapturePath(cmd)
 	if err != nil {
@@ -393,6 +407,12 @@ func (d *Downloader) DownloadAudio(ctx context.Context, rawURL string) (string, 
 	}
 	args = append(args, platformArgs(rawURL)...)
 	args = append(args, rawURL)
+
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp.
+	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+		_ = os.RemoveAll(workDir) // not needed for Cobalt path
+		return d.downloadAudioViaCobalt(ctx, rawURL)
+	}
 
 	cmd := exec.CommandContext(ctx, d.ytdlp, args...)
 	path, err := runAndCapturePath(cmd)

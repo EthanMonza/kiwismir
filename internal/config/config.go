@@ -43,6 +43,10 @@ type Config struct {
 
 	// Debug enables verbose telebot logging.
 	Debug bool
+
+	// CobaltAPIURL is the URL of a self-hosted Cobalt instance.
+	// When set, YouTube downloads are routed through Cobalt instead of yt-dlp.
+	CobaltAPIURL string
 }
 
 // Load reads the configuration from environment variables, applying sane
@@ -59,6 +63,7 @@ func Load() (*Config, error) {
 		MaxFileSizeMB:   getEnvInt("MAX_FILE_SIZE_MB", 50),
 		DownloadTimeout: time.Duration(getEnvInt("DOWNLOAD_TIMEOUT_SEC", 300)) * time.Second,
 		Debug:           getEnvBool("DEBUG", false),
+		CobaltAPIURL:    strings.TrimSpace(os.Getenv("COBALT_API_URL")),
 	}
 
 	if cfg.BotToken == "" {
