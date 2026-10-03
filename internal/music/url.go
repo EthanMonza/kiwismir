@@ -63,6 +63,7 @@ func ExtractURL(text string) string {
 }
 
 // IsYouTubeURL reports whether s is a YouTube watch/short/share URL.
+// Playlist-only links (no video id) are NOT videos — see IsYouTubePlaylistURL.
 func IsYouTubeURL(s string) bool {
 	u, err := url.Parse(strings.TrimSpace(s))
 	if err != nil || u.Host == "" {
@@ -81,6 +82,43 @@ func IsYouTubeURL(s string) bool {
 			u.Query().Get("v") != ""
 	}
 	return false
+}
+
+// IsYouTubePlaylistURL reports whether s points at a YouTube playlist or
+// album (playlist/, .../videos, watch with ONLY a list= param, share links
+// carrying list=). Such links are handled by the playlist batch flow, not by
+// the single-video pipeline.
+func IsYouTubePlaylistURL(s string) bool {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host != "youtu.be" && host != "www.youtu.be" &&
+		!strings.Contains(host, "youtube.com") && !strings.Contains(host, "youtube-nocookie.com") {
+		return false
+	}
+	q := u.Query()
+	list := strings.TrimSpace(q.Get("list"))
+	if list == "" {
+		return false
+	}
+	path := strings.ToLower(u.Path)
+	if strings.HasPrefix(path, "/playlist") {
+		return true
+	}
+	// watch?v=..&list=.. still has a video — it goes single, not batch.
+	// watch?list=.. (no v) is a pure playlist link.
+	if strings.HasPrefix(path, "/watch") {
+		return strings.TrimSpace(q.Get("v")) == ""
+	}
+	// youtu.be share links with list=: the video part usually stays playable
+	// single, but a bare list id means playlist.
+	if host == "youtu.be" || host == "www.youtu.be" {
+		return strings.Trim(u.Path, "/") == ""
+	}
+	// /videos, /streams, channel tabs with a list param.
+	return true
 }
 
 // IsSpotifyTrackURL reports whether s points at a single Spotify track.

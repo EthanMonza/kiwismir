@@ -3,11 +3,13 @@ package music
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +18,9 @@ const (
 	defaultDownloadTimeout = 120 * time.Second
 	defaultMaxParallel     = 3
 	defaultCacheDir        = "/tmp/yt-dlp-cache"
+	// maxYTPlaylistTracks caps YouTube playlist batches: beyond this the bot
+	// refuses with a polite message instead of grinding for an hour.
+	maxYTPlaylistTracks = 20
 )
 
 // Service downloads audio via an external yt-dlp binary.
@@ -137,9 +142,33 @@ func (s *Service) downloadAudio(ctx context.Context, target string) (string, str
 	}
 
 	outTmpl := filepath.Join(workDir, "%(id)s.%(ext)s")
+
+	path, title, err := s.extractAudio(ctx, target, outTmpl, "bestaudio/best")
+	if err != nil && isFormatUnavailable(err) {
+		// Some videos (age-gated, shorts, weird uploads) have no separate
+		// audio stream for this yt-dlp version — retry with the merged best
+		// format instead of failing loudly.
+		log.Printf("music: format bestaudio/best unavailable for %q, retrying with best", target)
+		path, title, err = s.extractAudio(ctx, target, outTmpl, "best")
+	}
+	if err != nil {
+		_ = os.RemoveAll(workDir)
+		return "", "", "", err
+	}
+	if err := CheckFileSize(path); err != nil {
+		_ = os.RemoveAll(workDir)
+		return "", "", "", err
+	}
+	return path, workDir, title, nil
+}
+
+// extractAudio runs one yt-dlp audio-extraction pass with the given format
+// selector and returns the resulting file path and title.
+func (s *Service) extractAudio(ctx context.Context, target, outTmpl, format string) (string, string, error) {
 	ffmpegDir := filepath.Dir(s.ffmpeg)
 
 	args := []string{
+		"-f", format,
 		"-x",
 		"--audio-format", "mp3",
 		"--audio-quality", "0",
@@ -165,16 +194,78 @@ func (s *Service) downloadAudio(ctx context.Context, target string) (string, str
 	args = append(args, target)
 
 	cmd := exec.CommandContext(ctx, s.ytdlp, args...)
-	path, title, err := runYtDlp(cmd)
+	return runYtDlp(cmd)
+}
+
+// isFormatUnavailable reports whether err is yt-dlp's "Requested format is
+// not available" failure, which deserves a retry with a looser selector.
+func isFormatUnavailable(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "requested format is not available")
+}
+
+// PlaylistIDs resolves a YouTube playlist/album URL into its video URLs via
+// `yt-dlp --flat-playlist -J`, capped at max entries. It returns the playlist
+// title when the backend reports one.
+func (s *Service) PlaylistIDs(ctx context.Context, playlistURL string, max int) ([]string, string, error) {
+	if max <= 0 {
+		max = maxYTPlaylistTracks
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	args := []string{
+		"-J",
+		"--flat-playlist",
+		"--no-warnings",
+		"--playlist-end", strconv.Itoa(max + 1), // +1: detect overflow
+		"--extractor-args", "youtube:player_client=android,web",
+	}
+	if s.cookies != "" {
+		args = append(args, "--cookies", s.cookies)
+	}
+	args = append(args, playlistURL)
+
+	cmd := exec.CommandContext(ctx, s.ytdlp, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		_ = os.RemoveAll(workDir)
-		return "", "", "", err
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return nil, "", fmt.Errorf("yt-dlp playlist probe failed: %w\ndetail: %s", err, detail)
+		}
+		return nil, "", fmt.Errorf("yt-dlp playlist probe failed: %w", err)
 	}
-	if err := CheckFileSize(path); err != nil {
-		_ = os.RemoveAll(workDir)
-		return "", "", "", err
+
+	var info struct {
+		Title   string `json:"title"`
+		Entries []struct {
+			ID  string `json:"id"`
+		URL string `json:"url"`
+		} `json:"entries"`
 	}
-	return path, workDir, title, nil
+	if err := json.Unmarshal(out, &info); err != nil {
+		return nil, "", fmt.Errorf("parse playlist json: %w", err)
+	}
+	var ids []string
+	for _, e := range info.Entries {
+		id := strings.TrimSpace(e.URL)
+		if id == "" {
+			id = strings.TrimSpace(e.ID)
+		}
+		if id == "" {
+			continue
+		}
+		// --flat-playlist may hand back bare ids or full URLs.
+		if !strings.Contains(id, "://") {
+			id = "https://www.youtube.com/watch?v=" + id
+		}
+		ids = append(ids, id)
+		if len(ids) >= max+1 {
+			break
+		}
+	}
+	return ids, info.Title, nil
 }
 
 func runYtDlp(cmd *exec.Cmd) (path, title string, err error) {

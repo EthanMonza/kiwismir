@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+// TestIsFormatUnavailable matches yt-dlp's "Requested format is not
+// available" failure — the case your log hit on pYBA1MQDCFg — and nothing
+// else. That error triggers the bestaudio/best → best retry in downloadAudio.
+func TestIsFormatUnavailable(t *testing.T) {
+	positive := []string{
+		"yt-dlp failed: exit status 1\ndetail: ERROR: [youtube] pYBA1MQDCFg: Requested format is not available. Use --list-formats for a list of available formats",
+		"ERROR: requested format is not available",
+	}
+	for _, s := range positive {
+		if !isFormatUnavailable(errString(s)) {
+			t.Errorf("isFormatUnavailable(%q) = false, want true", s)
+		}
+	}
+	negative := []string{
+		"yt-dlp failed: exit status 1\ndetail: ERROR: [youtube] x: Sign in to confirm you're not a bot",
+		"file too large for Telegram (1 bytes > 2)",
+		"",
+	}
+	for _, s := range negative {
+		if isFormatUnavailable(errString(s)) {
+			t.Errorf("isFormatUnavailable(%q) = true, want false", s)
+		}
+	}
+	if isFormatUnavailable(nil) {
+		t.Error("isFormatUnavailable(nil) = true, want false")
+	}
+}
+
 // TestIsYouTubeBotCheck matches the markers yt-dlp prints on the bot-check
 // wall, and nothing else (same contract as downloader's classifier).
 func TestIsYouTubeBotCheck(t *testing.T) {

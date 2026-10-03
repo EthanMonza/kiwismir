@@ -89,6 +89,20 @@ func (h *Handler) HandleYT(c tele.Context) error {
 	if raw == "" {
 		raw = strings.TrimSpace(args)
 	}
+	// YouTube playlists/albums go to the batch flow (no new strings — it
+	// reuses the existing progress/summary messages).
+	if IsYouTubePlaylistURL(raw) {
+		var userID int64
+		if c.Sender() != nil {
+			userID = c.Sender().ID
+		}
+		status, err := h.sendStatus(c, h.t(userID, "spotify_reading"))
+		if err != nil {
+			return err
+		}
+		go h.runYTPlaylist(userID, c.Recipient(), raw, status)
+		return nil
+	}
 	if !IsYouTubeURL(raw) {
 		return c.Send(msgBadYouTube, htmlMode)
 	}
@@ -166,10 +180,10 @@ func (h *Handler) HandleTrack(c tele.Context) error {
 	}
 }
 
-// TryHandlePaste returns true if text was a Spotify or Apple Music link and
-// was handled. Call from the existing OnText handler before the legacy media
-// pipeline. Without full mode only tracks are intercepted; albums/playlists
-// get a localized hint instead — never a log entry.
+// TryHandlePaste returns true if text was a Spotify, Apple Music or YouTube
+// playlist link and was handled. Call from the existing OnText handler before
+// the legacy media pipeline. Without full mode only tracks are intercepted;
+// albums/playlists get a localized hint instead — never a log entry.
 //
 // Group behaviour matches the main media pipeline: any supported link in the
 // chat triggers a download, while ordinary chatter stays silent (the caller
@@ -182,6 +196,17 @@ func (h *Handler) TryHandlePaste(c tele.Context, text string) bool {
 	}
 
 	raw := ExtractURL(text)
+	if IsYouTubePlaylistURL(raw) {
+		userID := c.Sender().ID
+		to := c.Recipient()
+		status, err := h.sendStatus(c, h.t(userID, "spotify_reading"))
+		if err != nil {
+			log.Printf("music: yt playlist paste status send: %v", err)
+			return true
+		}
+		go h.runYTPlaylist(userID, to, raw, status)
+		return true
+	}
 	if AppleTrack(raw) != "" {
 		to := c.Recipient()
 		status, err := h.sendStatus(c, msgWorking)

@@ -39,6 +39,35 @@ func TestIsYouTubeURL(t *testing.T) {
 	}
 }
 
+func TestIsYouTubePlaylistURL(t *testing.T) {
+	ok := []string{
+		"https://www.youtube.com/playlist?list=PL1234567890abcdef",
+		"https://youtube.com/playlist?list=PL1234567890abcdef",
+		"https://www.youtube.com/watch?list=PL1234567890abcdef",
+		"https://music.youtube.com/playlist?list=PL1234567890abcdef",
+	}
+	for _, u := range ok {
+		if !IsYouTubePlaylistURL(u) {
+			t.Errorf("expected yt playlist: %s", u)
+		}
+	}
+	// watch?v=..&list=.. is a video with a playlist attached — single flow.
+	notPlaylist := []string{
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1234567890abcdef",
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		"https://youtu.be/dQw4w9WgXcQ",
+		"https://www.youtube.com/playlist", // no list id
+		"https://open.spotify.com/playlist/37i9dQZF1DX4WY8yYyYyYy",
+		"not a url",
+		"",
+	}
+	for _, u := range notPlaylist {
+		if IsYouTubePlaylistURL(u) {
+			t.Errorf("expected not yt playlist: %s", u)
+		}
+	}
+}
+
 func TestSpotifyTrackURL(t *testing.T) {
 	cases := []struct {
 		in  string
