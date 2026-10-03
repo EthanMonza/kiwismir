@@ -96,3 +96,27 @@ func TestMaterializeCookiesRejectsJunk(t *testing.T) {
 		t.Error("expected an error for invalid base64")
 	}
 }
+
+// TestDecodeB64FlexibleToleratesDashboardDamage: URL-safe alphabet, missing
+// padding, data-URL prefix and stray invisible chars must still decode.
+func TestDecodeB64FlexibleToleratesDashboardDamage(t *testing.T) {
+	strict := base64.StdEncoding.EncodeToString([]byte(testCookieJar))
+	// URL-safe alphabet.
+	urlSafe := strings.ReplaceAll(strings.ReplaceAll(strict, "+", "-"), "/", "_")
+	if _, err := decodeB64Flexible(urlSafe); err != nil {
+		t.Errorf("url-safe alphabet: %v", err)
+	}
+	// Missing padding.
+	if _, err := decodeB64Flexible(strings.TrimRight(strict, "=")); err != nil {
+		t.Errorf("missing padding: %v", err)
+	}
+	// data-URL prefix.
+	if _, err := decodeB64Flexible("data:text/plain;base64," + strict); err != nil {
+		t.Errorf("data-url prefix: %v", err)
+	}
+	// Stray zero-width char in the middle.
+	damaged := strict[:100] + "\u200b" + strict[100:]
+	if _, err := decodeB64Flexible(damaged); err != nil {
+		t.Errorf("stray invisible char: %v", err)
+	}
+}

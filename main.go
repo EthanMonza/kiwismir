@@ -41,8 +41,10 @@ func main() {
 	// containers) cannot mount a cookie file, so they pass the jar inline as
 	// base64. Decode it into DOWNLOAD_DIR and use it exactly like
 	// COOKIES_FILE; an explicit COOKIES_FILE always wins.
+	// A bad COOKIES_B64 must NEVER kill the bot (otherwise Railway loops
+	// restarts and nothing responds) — warn and continue without cookies.
 	if p, cleanup, err := materializeCookies(cfg.CookiesFile, cfg.CookiesB64, cfg.DownloadDir); err != nil {
-		log.Fatalf("cookies error: %v", err)
+		log.Printf("cookies warning: %v — continuing without cookies (fix COOKIES_B64 and redeploy to unlock YouTube/VK login-walled downloads)", err)
 	} else if p != "" {
 		cfg.CookiesFile = p
 		if cleanup != nil {
@@ -106,11 +108,9 @@ func materializeCookies(cookiesFile, cookiesB64, downloadDir string) (string, fu
 	if raw == "" {
 		return "", nil, nil
 	}
-	data, err := base64.StdEncoding.DecodeString(raw)
+	data, err := decodeB64Flexible(raw)
 	if err != nil {
-		if data, err = base64.URLEncoding.DecodeString(raw); err != nil {
-			return "", nil, err
-		}
+		return "", nil, err
 	}
 	if len(data) == 0 || !strings.Contains(string(data), "# Netscape HTTP Cookie File") {
 		return "", nil, errBadCookieJar
@@ -141,6 +141,56 @@ func materializeCookies(cookiesFile, cookiesB64, downloadDir string) (string, fu
 	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
 }
 
+// decodeB64Flexible decodes a dashboard-pasted base64 jar, tolerating the
+// usual corruptions: URL-safe alphabet, missing padding, a data-URL prefix,
+// or stray invisible characters. Strict decoding is tried first so genuine
+// values take the fast path.
+func decodeB64Flexible(raw string) ([]byte, error) {
+	// Someone may paste the whole "data:text/plain;base64,..." URI.
+	if i := strings.LastIndex(raw, ","); i >= 0 && strings.Contains(raw[:i], "base64") {
+		raw = raw[i+1:]
+	}
+	if data, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
+	if data, err := base64.URLEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
+	// Missing padding (dashboards often trim trailing "=").
+	if m := len(raw) % 4; m != 0 {
+		padded := raw + strings.Repeat("=", 4-m)
+		if data, err := base64.StdEncoding.DecodeString(padded); err == nil {
+			return data, nil
+		}
+		if data, err := base64.URLEncoding.DecodeString(padded); err == nil {
+			return data, nil
+		}
+	}
+	if data, err := base64.RawStdEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
+	if data, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
+	// Last resort: drop anything outside the base64 alphabet (zero-width
+	// chars, quotes, backslashes from double-escaping) and retry once.
+	clean := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9',
+			r == '+', r == '/', r == '-', r == '_', r == '=':
+			return r
+		}
+		return -1
+	}, raw)
+	if clean != raw {
+		if data, err := decodeB64Flexible(clean); err == nil {
+			return data, nil
+		}
+	}
+	// Return the strict error so the log shows the real byte offset.
+	_, err := base64.StdEncoding.DecodeString(raw)
+	return nil, err
+}
 // normalizeB64 strips whitespace (newlines, spaces) that dashboard editors
 // and .env files often introduce into long base64 values.
 func normalizeB64(s string) string {
