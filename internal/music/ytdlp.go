@@ -241,7 +241,7 @@ func (s *Service) PlaylistIDs(ctx context.Context, playlistURL string, max int) 
 		Title   string `json:"title"`
 		Entries []struct {
 			ID  string `json:"id"`
-		URL string `json:"url"`
+			URL string `json:"url"`
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal(out, &info); err != nil {
