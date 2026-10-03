@@ -68,20 +68,30 @@ func TestDecideBatch(t *testing.T) {
 func TestSpotifyGoDataRoundTrip(t *testing.T) {
 	for _, kind := range []SpotifyKind{SpotifyAlbum, SpotifyPlaylist} {
 		for _, scope := range []string{scopeAll, scopeTen} {
+			// Legacy payload without owner.
 			data := spData(kind, "4aawyAB9vmqN3uQ7FjRGTy", scope)
 			if len(data) > 64 {
 				t.Errorf("callback data %q is %d bytes, telegram caps at 64", data, len(data))
 			}
-			gotKind, gotID, gotScope, ok := parseSpotifyGoData(data)
-			if !ok || gotKind != kind || gotID != "4aawyAB9vmqN3uQ7FjRGTy" || gotScope != scope {
-				t.Errorf("round trip %q = (%d, %q, %q, %v)", data, gotKind, gotID, gotScope, ok)
+			gotKind, gotID, gotScope, gotOwner, ok := parseSpotifyGoData(data)
+			if !ok || gotKind != kind || gotID != "4aawyAB9vmqN3uQ7FjRGTy" || gotScope != scope || gotOwner != 0 {
+				t.Errorf("round trip %q = (%d, %q, %q, %d, %v)", data, gotKind, gotID, gotScope, gotOwner, ok)
+			}
+			// Group payload with the requester's id.
+			data = spData(kind, "4aawyAB9vmqN3uQ7FjRGTy", scope, 12345)
+			if len(data) > 64 {
+				t.Errorf("callback data %q is %d bytes, telegram caps at 64", data, len(data))
+			}
+			gotKind, gotID, gotScope, gotOwner, ok = parseSpotifyGoData(data)
+			if !ok || gotKind != kind || gotID != "4aawyAB9vmqN3uQ7FjRGTy" || gotScope != scope || gotOwner != 12345 {
+				t.Errorf("round trip %q = (%d, %q, %q, %d, %v)", data, gotKind, gotID, gotScope, gotOwner, ok)
 			}
 		}
 	}
 
-	bad := []string{"", "alb", "alb:4aawyAB9vmqN3uQ7FjRGTy", "alb:short:all", "xxx:4aawyAB9vmqN3uQ7FjRGTy:all", "alb:4aawyAB9vmqN3uQ7FjRGTy:lots", "alb:4aawyAB9vmqN3uQ7FjRGTy:all:extra"}
+	bad := []string{"", "alb", "alb:4aawyAB9vmqN3uQ7FjRGTy", "alb:short:all", "xxx:4aawyAB9vmqN3uQ7FjRGTy:all", "alb:4aawyAB9vmqN3uQ7FjRGTy:lots", "alb:4aawyAB9vmqN3uQ7FjRGTy:all:notanid", "alb:4aawyAB9vmqN3uQ7FjRGTy:all:1:extra"}
 	for _, in := range bad {
-		if _, _, _, ok := parseSpotifyGoData(in); ok {
+		if _, _, _, _, ok := parseSpotifyGoData(in); ok {
 			t.Errorf("parseSpotifyGoData(%q) should fail", in)
 		}
 	}
@@ -93,5 +103,19 @@ func TestSpotifyTrackInfoDisplayName(t *testing.T) {
 	}
 	if got := (SpotifyTrackInfo{Name: "Song", Artist: "Band"}).DisplayName(); got != "Band — Song" {
 		t.Errorf("DisplayName = %q", got)
+	}
+}
+
+func TestCancelOwner(t *testing.T) {
+	if got := cancelOwner("x"); got != 0 {
+		t.Errorf("cancelOwner(x) = %d, want 0 (legacy)", got)
+	}
+	if got := cancelOwner("x:12345"); got != 12345 {
+		t.Errorf("cancelOwner(x:12345) = %d, want 12345", got)
+	}
+	for _, in := range []string{"", "x:", "x:abc", "y:123"} {
+		if got := cancelOwner(in); got != 0 {
+			t.Errorf("cancelOwner(%q) = %d, want 0", in, got)
+		}
 	}
 }

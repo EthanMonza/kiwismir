@@ -49,7 +49,7 @@ type Config struct {
 	CobaltAPIURL string
 
 	// MusicDownloadEnabled toggles the music features (/yt, /track and
-	// Spotify link pastes). Enabled by default.
+	// Spotify/Apple Music link pastes). Enabled by default.
 	MusicDownloadEnabled bool
 
 	// YtDlpBin is the yt-dlp binary used by the music service. Falls back to
@@ -61,9 +61,26 @@ type Config struct {
 	FfmpegBin string
 
 	// CookiesFile is an optional netscape-format cookie jar passed to yt-dlp
-	// for Twitter/X requests only, unlocking age-restricted or sensitive
-	// tweets. When unset, such tweets fail with a clear "login required".
+	// for YouTube and Twitter/X requests. YouTube blocks datacenter IPs with
+	// a "Sign in to confirm you're not a bot" check, so without this every
+	// YouTube download fails in Docker/Railway; for Twitter/X it unlocks
+	// age-restricted or sensitive tweets. When unset, such requests fail
+	// with a clear "login required" message.
 	CookiesFile string
+
+	// CookiesB64 is the same jar base64-encoded (e.g. `base64 -w0
+	// cookies.txt`). It exists for hosts with no place to mount a file
+	// (Railway, ephemeral containers): at startup main decodes it into a
+	// file and uses it exactly like CookiesFile. When both are set,
+	// COOKIES_FILE wins.
+	CookiesB64 string
+
+	// SupportAddresses carries the donation addresses shown by /support.
+	// Values come ONLY from the environment — never hardcode real addresses
+	// in code or locale files.
+	SupportBTC string
+	SupportTON string
+	SupportETH string
 
 	// SpotifyClientID and SpotifyClientSecret enable "full Spotify mode"
 	// (albums and playlists via the Web API, client-credentials flow). When
@@ -92,9 +109,14 @@ func Load() (*Config, error) {
 		YtDlpBin:             getEnv("YTDLP_BIN", getEnv("YTDLP_PATH", "yt-dlp")),
 		FfmpegBin:            getEnv("FFMPEG_BIN", getEnv("FFMPEG_PATH", "ffmpeg")),
 		CookiesFile:          strings.TrimSpace(os.Getenv("COOKIES_FILE")),
+		CookiesB64:           strings.TrimSpace(os.Getenv("COOKIES_B64")),
 
 		SpotifyClientID:     strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_ID")),
 		SpotifyClientSecret: strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_SECRET")),
+
+		SupportBTC: strings.TrimSpace(os.Getenv("SUPPORT_BTC")),
+		SupportTON: strings.TrimSpace(os.Getenv("SUPPORT_TON")),
+		SupportETH: strings.TrimSpace(os.Getenv("SUPPORT_ETH")),
 	}
 
 	if cfg.BotToken == "" {

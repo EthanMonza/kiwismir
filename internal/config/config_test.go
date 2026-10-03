@@ -61,10 +61,65 @@ func TestLoadMusicOverridesAndFallbacks(t *testing.T) {
 	}
 }
 
+func TestLoadCookiesDefaults(t *testing.T) {
+	t.Setenv("BOT_TOKEN", "token")
+	t.Setenv("COOKIES_FILE", "")
+	t.Setenv("COOKIES_B64", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.CookiesFile != "" {
+		t.Errorf("CookiesFile default = %q, want empty", cfg.CookiesFile)
+	}
+	if cfg.CookiesB64 != "" {
+		t.Errorf("CookiesB64 default = %q, want empty", cfg.CookiesB64)
+	}
+}
+
+func TestLoadCookiesValues(t *testing.T) {
+	t.Setenv("BOT_TOKEN", "token")
+	t.Setenv("COOKIES_FILE", "/data/cookies.txt")
+	t.Setenv("COOKIES_B64", "IyBOZXRzY2FwZSBIVFRQIENvb2tpZSBGaWxl")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.CookiesFile != "/data/cookies.txt" {
+		t.Errorf("CookiesFile = %q, want %q", cfg.CookiesFile, "/data/cookies.txt")
+	}
+	if cfg.CookiesB64 != "IyBOZXRzY2FwZSBIVFRQIENvb2tpZSBGaWxl" {
+		t.Errorf("CookiesB64 = %q, want the base64 value", cfg.CookiesB64)
+	}
+}
+
 func TestLoadRequiresBotToken(t *testing.T) {
 	t.Setenv("BOT_TOKEN", "")
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "BOT_TOKEN") {
 		t.Fatalf("expected BOT_TOKEN requirement error, got %v", err)
+	}
+}
+
+func TestLoadSupportAddresses(t *testing.T) {
+	t.Setenv("BOT_TOKEN", "token")
+	t.Setenv("SUPPORT_BTC", "bc1qexample")
+	t.Setenv("SUPPORT_TON", "")
+	t.Setenv("SUPPORT_ETH", "0xexample")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.SupportBTC != "bc1qexample" {
+		t.Errorf("SupportBTC = %q, want %q", cfg.SupportBTC, "bc1qexample")
+	}
+	if cfg.SupportTON != "" {
+		t.Errorf("SupportTON = %q, want empty", cfg.SupportTON)
+	}
+	if cfg.SupportETH != "0xexample" {
+		t.Errorf("SupportETH = %q, want %q", cfg.SupportETH, "0xexample")
 	}
 }

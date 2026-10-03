@@ -5,6 +5,7 @@ import (
 	"html"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,8 +40,8 @@ const (
 // Callback "unique" identifiers for the Spotify confirm keyboard. telebot
 // routes inline-button presses by these.
 const (
-	uniqSpotifyGo     = "spdl" // data: "kind:id:scope"
-	uniqSpotifyCancel = "spcx"
+	uniqSpotifyGo     = "spdl" // data: "kind:id:scope[:owner]"
+	uniqSpotifyCancel = "spcx" // data: "x" legacy or "x:<owner>"
 )
 
 const (
@@ -70,24 +71,41 @@ func kindFromShort(s string) SpotifyKind {
 	return SpotifyNone
 }
 
-// spData builds the confirm-button payload ("alb:<id>:all" style).
-func spData(kind SpotifyKind, id, scope string) string {
-	return kind.short() + ":" + id + ":" + scope
+// spData builds the confirm-button payload ("alb:<id>:all:<owner>" style).
+// The trailing owner id lets groups tell the requester's taps apart from a
+// stranger's (see HandleSpotifyGo); legacy payloads without it carry owner
+// 0 and skip the check.
+func spData(kind SpotifyKind, id, scope string, owner ...int64) string {
+	base := kind.short() + ":" + id + ":" + scope
+	if len(owner) > 0 {
+		base += ":" + strconv.FormatInt(owner[0], 10)
+	}
+	return base
 }
 
 // parseSpotifyGoData parses a confirm-button payload back into its parts.
-func parseSpotifyGoData(s string) (SpotifyKind, string, string, bool) {
+func parseSpotifyGoData(s string) (SpotifyKind, string, string, int64, bool) {
 	parts := strings.Split(s, ":")
-	if len(parts) != 3 {
-		return SpotifyNone, "", "", false
+	switch len(parts) {
+	case 3:
+		kind := kindFromShort(parts[0])
+		scope := parts[2]
+		if kind == SpotifyNone || !looksLikeSpotifyID(parts[1]) ||
+			(scope != scopeAll && scope != scopeTen) {
+			return SpotifyNone, "", "", 0, false
+		}
+		return kind, parts[1], scope, 0, true
+	case 4:
+		kind := kindFromShort(parts[0])
+		scope := parts[2]
+		owner, err := strconv.ParseInt(parts[3], 10, 64)
+		if kind == SpotifyNone || !looksLikeSpotifyID(parts[1]) ||
+			(scope != scopeAll && scope != scopeTen) || err != nil {
+			return SpotifyNone, "", "", 0, false
+		}
+		return kind, parts[1], scope, owner, true
 	}
-	kind := kindFromShort(parts[0])
-	scope := parts[2]
-	if kind == SpotifyNone || !looksLikeSpotifyID(parts[1]) ||
-		(scope != scopeAll && scope != scopeTen) {
-		return SpotifyNone, "", "", false
-	}
-	return kind, parts[1], scope, true
+	return SpotifyNone, "", "", 0, false
 }
 
 // BatchDecision says what to do with an N-track collection.
@@ -158,40 +176,84 @@ func (h *Handler) editCollectionError(userID int64, status *tele.Message, err er
 }
 
 // confirmKeyboard builds the "all N / first 10 / cancel" inline keyboard.
+// The requester's id is embedded in every payload so group taps from anyone
+// else can be told apart (see HandleSpotifyGo).
 func (h *Handler) confirmKeyboard(userID int64, kind SpotifyKind, id string, n int) *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
-	all := m.Data(h.t(userID, "spotify_confirm_all", n), uniqSpotifyGo, spData(kind, id, scopeAll))
-	ten := m.Data(h.t(userID, "spotify_confirm_ten"), uniqSpotifyGo, spData(kind, id, scopeTen))
-	cancel := m.Data(h.t(userID, "spotify_cancel"), uniqSpotifyCancel, "x")
+	all := m.Data(h.t(userID, "spotify_confirm_all", n), uniqSpotifyGo, spData(kind, id, scopeAll, userID))
+	ten := m.Data(h.t(userID, "spotify_confirm_ten"), uniqSpotifyGo, spData(kind, id, scopeTen, userID))
+	cancel := m.Data(h.t(userID, "spotify_cancel"), uniqSpotifyCancel, "x:"+strconv.FormatInt(userID, 10))
 	m.Inline(m.Row(all), m.Row(ten), m.Row(cancel))
 	return m
 }
 
 // HandleSpotifyGo handles a confirm-button press: re-reads the collection
-// (stateless — the callback payload only carries kind/id/scope) and runs the
-// batch with the chosen scope.
+// (stateless — the callback payload only carries kind/id/scope/owner) and
+// runs the batch with the chosen scope. In groups taps from anyone but the
+// requester get a polite popup instead of hijacking the batch.
 func (h *Handler) HandleSpotifyGo(c tele.Context) error {
 	defer recoverHandler("HandleSpotifyGo", c)
-	_ = c.Respond(&tele.CallbackResponse{})
 
-	kind, id, scope, ok := parseSpotifyGoData(c.Data())
+	if c.Sender() == nil {
+		return nil
+	}
+	kind, id, scope, owner, ok := parseSpotifyGoData(c.Data())
 	if !ok {
+		_ = c.Respond(&tele.CallbackResponse{})
 		return c.Edit(msgError, htmlMode)
 	}
 	userID := c.Sender().ID
+	if owner != 0 && owner != userID {
+		return c.Respond(&tele.CallbackResponse{Text: h.t(userID, "not_your_request"), ShowAlert: true})
+	}
+	userID = ownerOr(userID, owner)
+	_ = c.Respond(&tele.CallbackResponse{})
 	status := c.Message()
 	edit(h.tb, status, h.t(userID, "spotify_reading"))
 	go h.deliverCollection(userID, c.Recipient(), kind, id, scope, status)
 	return nil
 }
 
-// HandleSpotifyCancel aborts from the confirm keyboard.
+// HandleSpotifyCancel aborts from the confirm keyboard. Same ownership rule
+// as HandleSpotifyGo.
 func (h *Handler) HandleSpotifyCancel(c tele.Context) error {
 	defer recoverHandler("HandleSpotifyCancel", c)
-	_ = c.Respond(&tele.CallbackResponse{})
+
+	if c.Sender() == nil {
+		return nil
+	}
 	userID := c.Sender().ID
+	owner := cancelOwner(c.Data())
+	if owner != 0 && owner != userID {
+		return c.Respond(&tele.CallbackResponse{Text: h.t(userID, "not_your_request"), ShowAlert: true})
+	}
+	_ = c.Respond(&tele.CallbackResponse{})
+	userID = ownerOr(userID, owner)
 	edit(h.tb, c.Message(), h.t(userID, "spotify_canceled"))
 	return nil
+}
+
+// ownerOr prefers the payload owner (the requester) over the tapper so the
+// follow-up messages reuse the requester's language.
+func ownerOr(tapper, owner int64) int64 {
+	if owner != 0 {
+		return owner
+	}
+	return tapper
+}
+
+// cancelOwner extracts the requester id from a cancel payload ("x" legacy
+// form or "x:<owner>").
+func cancelOwner(data string) int64 {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 || parts[0] != "x" {
+		return 0
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
 }
 
 // deliverCollection re-fetches the collection after a confirm press and runs

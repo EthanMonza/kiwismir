@@ -72,16 +72,21 @@ type Downloader struct {
 }
 
 // New constructs a Downloader. ytdlp and ffmpeg are binary paths/names.
-// cobaltAPIURL is an optional Cobalt API instance URL used for YouTube (and
-// Twitter/X) downloads. cookiesFile is an optional netscape-format cookie
-// jar applied to Twitter/X requests only, unlocking age-restricted tweets.
+// cobaltAPIURL is an optional Cobalt API instance URL. cookiesFile is an
+// optional netscape-format cookie jar passed to yt-dlp for YouTube (beats
+// the "Sign in to confirm you're not a bot" wall on datacenter IPs) and
+// Twitter/X (unlocks age-restricted tweets). When a jar is configured,
+// YouTube requests go through yt-dlp with cookies instead of Cobalt,
+// because a Cobalt instance has no way to receive the jar.
 func New(ytdlp, ffmpeg, tmpDir string, timeout time.Duration, cobaltAPIURL, cookiesFile string) *Downloader {
 	// Validate the optional cookie jar up front so a bad COOKIES_FILE is a
 	// loud one-line startup warning rather than a per-request surprise.
 	if cookiesFile != "" {
 		if fi, err := os.Stat(cookiesFile); err != nil || fi.IsDir() {
-			log.Printf("downloader: COOKIES_FILE %q is missing or not a file — age-restricted tweets will fail with a clear error", cookiesFile)
+			log.Printf("downloader: COOKIES_FILE %q is missing or not a file — YouTube downloads will hit the bot-check wall and age-restricted tweets will fail", cookiesFile)
 			cookiesFile = ""
+		} else if strings.TrimSpace(cobaltAPIURL) != "" {
+			log.Println("downloader: cookie jar configured — YouTube will use yt-dlp with cookies instead of Cobalt (Cobalt still handles Twitter/X probes)")
 		}
 	}
 	return &Downloader{
@@ -204,15 +209,15 @@ func (d *Downloader) Probe(ctx context.Context, rawURL string) (*Media, error) {
 	}
 	// Add any platform-specific bypasses (e.g. YouTube bot detection)
 	args = append(args, platformArgs(rawURL)...)
-	// Twitter: attach the optional cookies jar. It is deliberately scoped to
-	// twitter URLs so the cookies never travel to other platforms.
-	if d.cookiesFile != "" && isTwitterURL(rawURL) {
-		args = append(args, "--cookies", d.cookiesFile)
-	}
+	// Attach the optional cookie jar for YouTube (bot-check wall) and
+	// Twitter/X (age-restricted tweets). It is deliberately scoped to those
+	// hosts so the cookies never travel to other platforms.
+	args = append(args, d.cookiesArgs(rawURL)...)
 	args = append(args, rawURL)
 
-	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead.
-	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead —
+	// unless a cookie jar is set, which only yt-dlp can consume.
+	if d.cobaltURL != "" && d.cookiesFile == "" && isYouTubeURL(rawURL) {
 		return d.probeViaCobalt(ctx, rawURL)
 	}
 
@@ -226,10 +231,22 @@ func (d *Downloader) Probe(ctx context.Context, rawURL string) (*Media, error) {
 			return &Media{Type: TypePhoto, PhotoURL: rawURL, Ext: "jpg"}, nil
 		}
 		stderrStr := strings.TrimSpace(stderr.String())
+		var be *BackendError
 		if stderrStr != "" {
-			return nil, &BackendError{Err: fmt.Errorf("yt-dlp probe failed: %w\ndetail: %s", err, stderrStr)}
+			be = &BackendError{Err: fmt.Errorf("yt-dlp probe failed: %w\ndetail: %s", err, stderrStr)}
+		} else {
+			be = &BackendError{Err: fmt.Errorf("yt-dlp probe failed: %w", err)}
 		}
-		return nil, &BackendError{Err: fmt.Errorf("yt-dlp probe failed: %w", err)}
+		// Surface YouTube's login/bot-check wall as its own error so the bot
+		// can tell the user exactly what to do (set COOKIES_FILE/COOKIES_B64).
+		if ye := asYouTubeError(be, rawURL); ye != nil {
+			return nil, ye
+		}
+		// Same idea for VK's login wall (handled identically to YouTube's).
+		if ve := asVKError(be, rawURL); ve != nil {
+			return nil, ve
+		}
+		return nil, be
 	}
 
 	var info ytInfo
@@ -409,13 +426,12 @@ func (d *Downloader) DownloadVideo(ctx context.Context, rawURL string, maxHeight
 		"--no-simulate",
 	}
 	args = append(args, platformArgs(rawURL)...)
-	if d.cookiesFile != "" && isTwitterURL(rawURL) {
-		args = append(args, "--cookies", d.cookiesFile)
-	}
+	args = append(args, d.cookiesArgs(rawURL)...)
 	args = append(args, rawURL)
 
-	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp.
-	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp —
+	// unless a cookie jar is set, which only yt-dlp can consume.
+	if d.cobaltURL != "" && d.cookiesFile == "" && isYouTubeURL(rawURL) {
 		_ = os.RemoveAll(workDir) // not needed for Cobalt path
 		return d.downloadViaCobalt(ctx, rawURL, maxHeight)
 	}
@@ -424,6 +440,12 @@ func (d *Downloader) DownloadVideo(ctx context.Context, rawURL string, maxHeight
 	path, err := runAndCapturePath(cmd)
 	if err != nil {
 		_ = os.RemoveAll(workDir)
+		if ye := asYouTubeError(err, rawURL); ye != nil {
+			return "", "", ye
+		}
+		if ve := asVKError(err, rawURL); ve != nil {
+			return "", "", ve
+		}
 		return "", "", err
 	}
 	return path, workDir, nil
@@ -460,13 +482,12 @@ func (d *Downloader) DownloadAudio(ctx context.Context, rawURL string) (string, 
 		"--no-simulate",
 	}
 	args = append(args, platformArgs(rawURL)...)
-	if d.cookiesFile != "" && isTwitterURL(rawURL) {
-		args = append(args, "--cookies", d.cookiesFile)
-	}
+	args = append(args, d.cookiesArgs(rawURL)...)
 	args = append(args, rawURL)
 
-	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp.
-	if d.cobaltURL != "" && isYouTubeURL(rawURL) {
+	// If Cobalt is configured and this is a YouTube URL, use Cobalt instead of yt-dlp —
+	// unless a cookie jar is set, which only yt-dlp can consume.
+	if d.cobaltURL != "" && d.cookiesFile == "" && isYouTubeURL(rawURL) {
 		_ = os.RemoveAll(workDir) // not needed for Cobalt path
 		return d.downloadAudioViaCobalt(ctx, rawURL)
 	}
@@ -475,6 +496,12 @@ func (d *Downloader) DownloadAudio(ctx context.Context, rawURL string) (string, 
 	path, err := runAndCapturePath(cmd)
 	if err != nil {
 		_ = os.RemoveAll(workDir)
+		if ye := asYouTubeError(err, rawURL); ye != nil {
+			return "", "", ye
+		}
+		if ve := asVKError(err, rawURL); ve != nil {
+			return "", "", ve
+		}
 		return "", "", err
 	}
 	return path, workDir, nil
@@ -534,11 +561,12 @@ func FileSizeMB(path string) (int64, error) {
 	return fi.Size() / (1024 * 1024), nil
 }
 
-// platformArgs returns extra yt-dlp flags for specific platforms to bypass
-// bot detection without needing browser cookies.
+// platformArgs returns extra yt-dlp flags for specific platforms. For YouTube
+// the alternate player clients dodge some bot-checks, but they do NOT replace
+// cookies on datacenter IPs — see cookiesArgs.
 func platformArgs(rawURL string) []string {
 	host := strings.ToLower(rawURL)
-	
+
 	// YouTube blocks datacenter IPs with a "Sign in to confirm you're not a bot" error.
 	// We can bypass this by requesting the Android/Web client API instead of the default.
 	if strings.Contains(host, "youtube.com") || strings.Contains(host, "youtu.be") {
@@ -546,10 +574,10 @@ func platformArgs(rawURL string) []string {
 			"--extractor-args", "youtube:player_client=android,web",
 		}
 	}
-	
-	// For TikTok, we previously used a hardcoded API endpoint (api22), but it is now 
-	// throwing "status code 0" (region-blocked). The latest yt-dlp version's default 
+
+	// For TikTok, we previously used a hardcoded API endpoint (api22), but it is now
+	// throwing "status code 0" (region-blocked). The latest yt-dlp version's default
 	// extractor handles TikTok much better automatically.
-	
+
 	return nil
 }

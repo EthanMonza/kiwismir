@@ -45,6 +45,10 @@ func Register(tb *tele.Bot, cfg *config.Config, bundle *i18n.Bundle, store *stor
 		Timeout:     120 * time.Second,
 		MaxParallel: 3,
 		CacheDir:    "/tmp/yt-dlp-cache",
+		// COOKIES_FILE / COOKIES_B64 (decoded by main into cfg.CookiesFile)
+		// beat the YouTube bot-check wall; without it every /yt and Spotify
+		// track download fails in Docker/Railway.
+		CookiesFile: cfg.CookiesFile,
 	})
 	if !ok {
 		log.Printf("MUSIC DOWNLOAD SELF-CHECK FAILED: %s", msg)
@@ -97,7 +101,7 @@ func Register(tb *tele.Bot, cfg *config.Config, bundle *i18n.Bundle, store *stor
 	}
 	cmds = upsertCommands(cmds,
 		tele.Command{Text: "yt", Description: "Download audio from a YouTube URL"},
-		tele.Command{Text: "track", Description: "Download audio from a Spotify track URL"},
+		tele.Command{Text: "track", Description: "Download audio from a Spotify or Apple Music URL"},
 	)
 	if err := tb.SetCommands(cmds); err != nil {
 		log.Printf("music: could not update command menu: %v", err)

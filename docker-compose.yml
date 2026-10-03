@@ -8,8 +8,13 @@ services:
       - DATA_FILE=/data/kiwismir_users.json
       - YTDLP_PATH=yt-dlp
       - FFMPEG_PATH=ffmpeg
+      # Optional: point at your exported YouTube cookie jar (see README —
+      # without it every YouTube download fails behind the bot-check wall).
+      # - COOKIES_FILE=/data/cookies.txt
     volumes:
       - kiwismir_data:/data
+      # Optional: mount the jar into the volume path above.
+      # - ./cookies.txt:/data/cookies.txt:ro
 
 volumes:
   kiwismir_data:

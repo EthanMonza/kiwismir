@@ -7,6 +7,7 @@ package storage
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,7 +28,7 @@ type Store struct {
 	mu       sync.RWMutex
 	path     string
 	langs    map[int64]string   // userID -> language code (persisted)
-	sessions map[int64]*Session // userID -> transient session (in-memory)
+	sessions map[string]*Session // "chatID:userID" -> transient session (in-memory)
 }
 
 // persisted is the on-disk shape of the store.
@@ -40,7 +41,7 @@ func New(path string) (*Store, error) {
 	s := &Store{
 		path:     path,
 		langs:    make(map[int64]string),
-		sessions: make(map[int64]*Session),
+		sessions: make(map[string]*Session),
 	}
 
 	raw, err := os.ReadFile(path)
@@ -88,26 +89,35 @@ func (s *Store) SetLang(userID int64, lang string) error {
 	return s.flush()
 }
 
-// SetSession stores the transient download session for a user.
-func (s *Store) SetSession(userID int64, sess *Session) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[userID] = sess
+// sessionKey scopes a transient download session to one user inside one
+// chat. Private chats use the user's own ID as the chat ID, so behaviour
+// there is unchanged; in groups this keeps every member's flow separate and
+// lets the same user run parallel flows in different chats.
+func sessionKey(chatID, userID int64) string {
+	return strconv.FormatInt(chatID, 10) + ":" + strconv.FormatInt(userID, 10)
 }
 
-// Session returns the user's current session, if any.
-func (s *Store) Session(userID int64) (*Session, bool) {
+// SetSession stores the transient download session for a user inside a chat.
+func (s *Store) SetSession(chatID, userID int64, sess *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[sessionKey(chatID, userID)] = sess
+}
+
+// Session returns the user's current session in a chat, if any.
+func (s *Store) Session(chatID, userID int64) (*Session, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	sess, ok := s.sessions[userID]
+	sess, ok := s.sessions[sessionKey(chatID, userID)]
 	return sess, ok
 }
 
-// ClearSession removes the user's session (called once a download completes).
-func (s *Store) ClearSession(userID int64) {
+// ClearSession removes the user's session in a chat (called once a download
+// completes).
+func (s *Store) ClearSession(chatID, userID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.sessions, userID)
+	delete(s.sessions, sessionKey(chatID, userID))
 }
 
 func (s *Store) flush() error {

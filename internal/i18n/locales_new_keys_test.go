@@ -10,10 +10,23 @@ import (
 // Bundle.T fallback would otherwise quietly mask a missing translation with
 // the default language.
 var newKeys = []string{
+	// YouTube (bot-check wall)
+	"youtube_requires_login",
 	// Twitter/X
 	"twitter_requires_login",
 	"twitter_no_media",
 	"twitter_media_count",
+	// VK Video
+	"vk_requires_login",
+	// Groups
+	"not_your_request",
+	// /support
+	"cmd_support",
+	"support_header",
+	"support_btc",
+	"support_ton",
+	"support_eth",
+	"support_empty",
 	// Spotify full mode
 	"spotify_full_disabled",
 	"spotify_reading",

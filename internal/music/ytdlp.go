@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,17 +25,23 @@ type Service struct {
 	tmpDir  string
 	timeout time.Duration
 	cache   string
+	cookies string // optional netscape-format jar, passed for YouTube only
 	sem     chan struct{}
 }
 
 // Options configures a Service.
 type Options struct {
-	YtDlpBin   string
-	FfmpegBin  string
-	TmpDir     string
-	Timeout    time.Duration
+	YtDlpBin    string
+	FfmpegBin   string
+	TmpDir      string
+	Timeout     time.Duration
 	MaxParallel int
-	CacheDir   string
+	CacheDir    string
+	// CookiesFile is an optional netscape jar. YouTube runs through yt-dlp
+	// here (including ytsearch for Spotify tracks), so without this every
+	// request dies behind the "Sign in to confirm you're not a bot" wall
+	// on datacenter IPs. Scoped to YouTube URLs only, same as downloader.
+	CookiesFile string
 }
 
 // NewService resolves binaries and builds a Service.
@@ -71,12 +78,21 @@ func NewService(opts Options) (*Service, string, bool) {
 		cache = defaultCacheDir
 	}
 
+	cookies := opts.CookiesFile
+	if cookies != "" {
+		if fi, err := os.Stat(cookies); err != nil || fi.IsDir() {
+			log.Printf("music: cookie jar %q is missing or not a file — YouTube downloads will hit the bot-check wall", cookies)
+			cookies = ""
+		}
+	}
+
 	return &Service{
 		ytdlp:   ytdlp,
 		ffmpeg:  ffmpeg,
 		tmpDir:  tmp,
 		timeout: timeout,
 		cache:   cache,
+		cookies: cookies,
 		sem:     make(chan struct{}, parallel),
 	}, fmt.Sprintf("music download ready: ytdlp=%s ffmpeg=%s", ytdlp, ffmpeg), true
 }
@@ -138,9 +154,15 @@ func (s *Service) downloadAudio(ctx context.Context, target string) (string, str
 		"--print", "before_dl:title",
 		"--no-simulate",
 		// Prefer android/web clients to reduce bot-check failures on datacenter IPs.
+		// This only softens the wall — cookies (s.cookies) are what passes it.
 		"--extractor-args", "youtube:player_client=android,web",
-		target,
 	}
+	if s.cookies != "" {
+		// Every music request is YouTube (a direct URL or ytsearch1 for
+		// Spotify), so the jar applies here unconditionally.
+		args = append(args, "--cookies", s.cookies)
+	}
+	args = append(args, target)
 
 	cmd := exec.CommandContext(ctx, s.ytdlp, args...)
 	path, title, err := runYtDlp(cmd)

@@ -48,6 +48,10 @@ func PlatformOf(s string) string {
 	if isTwitterHost(strings.ToLower(u.Hostname())) {
 		return "twitter"
 	}
+	// VK / VK Video likewise needs exact host matching.
+	if isVKHost(strings.ToLower(u.Hostname())) {
+		return "vk"
+	}
 	for platform, needles := range supportedHosts {
 		for _, n := range needles {
 			if strings.Contains(host, n) {

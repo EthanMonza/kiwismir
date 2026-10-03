@@ -66,7 +66,7 @@ func (b *Bot) registerHandlers() {
 	b.tb.Handle("/start", b.onStart)
 	b.tb.Handle("/language", b.onLanguage)
 	b.tb.Handle("/help", b.onHelp)
-	b.tb.Handle("/jonygay", b.onJonygay)
+	b.tb.Handle("/support", b.onSupport)
 	b.tb.Handle(tele.OnText, b.onText)
 
 	// Inline-button callbacks, routed by their unique id.
@@ -84,6 +84,7 @@ func (b *Bot) setCommands() error {
 		{Text: "start", Description: b.i18n.T(lang, "cmd_start")},
 		{Text: "language", Description: b.i18n.T(lang, "cmd_language")},
 		{Text: "help", Description: b.i18n.T(lang, "cmd_help")},
+		{Text: "support", Description: b.i18n.T(lang, "cmd_support")},
 	})
 }
 
@@ -113,6 +114,9 @@ func (b *Bot) t(c tele.Context, key string, args ...any) string {
 
 // itoa is a tiny helper so keyboards.go stays import-light.
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// itoa64 formats a Telegram user id for embedding into callback payloads.
+func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 
 // Raw exposes the underlying telebot instance. It exists so main can register
 // the optional music handlers (/yt, /track) before polling starts, without
